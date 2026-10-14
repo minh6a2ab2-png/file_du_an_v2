@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Roboto', sans-serif; padding: 15px; color: #1e293b; background: #f8fafc; font-size: 13px; }
+    h3 { margin: 0 0 10px 0; color: #1e3a8a; font-size: 16px; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; }
+    .task-select { width: 100%; padding: 8px; margin-bottom: 15px; border-radius: 4px; border: 1px solid #cbd5e1;}
+    .member-card { background: white; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);}
+    .member-name { font-weight: bold; color: #0f172a; margin-bottom: 8px; font-size: 14px;}
+    .scores { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+    .scores div label { display: block; font-size: 11px; color: #475569; margin-bottom: 3px;}
+    .scores input { width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px; box-sizing: border-box; text-align: center;}
+    .commitment { background: #fffbeb; border: 1px dashed #f59e0b; padding: 12px; border-radius: 6px; margin: 15px 0; }
+    .commitment label { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; font-weight: bold; color: #92400e; cursor: pointer;}
+    .btn-submit { background: #2563eb; color: white; border: none; padding: 12px; border-radius: 6px; width: 100%; font-weight: bold; cursor: pointer;}
+    .btn-submit:disabled { background: #94a3b8; cursor: not-allowed;}
+    #membersContainer { max-height: 380px; overflow-y: auto; padding-right: 5px; }
+  </style>
+</head>
+<body>
+  <h3>🌟 ĐÁNH GIÁ THÀNH VIÊN</h3>
+  
+  <label style="font-weight: bold; display: block; margin-bottom: 5px;">Chọn Nhiệm vụ (Đã hoàn thành):</label>
+  <select id="taskSelect" class="task-select" onchange="renderMembers()">
+    <option value="">-- Đang tải danh sách... --</option>
+  </select>
+
+  <div id="membersContainer">
+      <!-- Danh sách thành viên sẽ được chèn bằng JS -->
+  </div>
+
+  <div class="commitment">
+    <label>
+      <input type="checkbox" id="chkNotify" style="margin-top: 2px;">
+      Tôi xác nhận đã trao đổi và thông báo kết quả đánh giá này cho các thành viên liên quan trước khi cập nhật lên hệ thống.
+    </label>
+  </div>
+
+  <button class="btn-submit" id="submitBtn" onclick="submitReview()">💾 LƯU ĐÁNH GIÁ & CẬP NHẬT BẢNG</button>
+
+  <script>
+    let globalData = {};
+
+    window.onload = function() {
+      google.script.run.withSuccessHandler(function(data) {
+        globalData = data;
+        const sel = document.getElementById('taskSelect');
+        sel.innerHTML = '<option value="">-- Chọn Task cần đánh giá --</option>';
+        if(data.tasks.length === 0) {
+           sel.innerHTML = '<option value="">(Không có Task nào chờ đánh giá)</option>';
+        } else {
+           data.tasks.forEach(t => {
+             sel.innerHTML += `<option value="${t.id}">[${t.id}] ${t.name}</option>`;
+           });
+        }
+      }).getReviewInitData();
+    };
+
+    function renderMembers() {
+      const taskId = document.getElementById('taskSelect').value;
+      const container = document.getElementById('membersContainer');
+      container.innerHTML = '';
+      
+      if(!taskId || !globalData.membersMap[taskId]) return;
+      
+      const members = globalData.membersMap[taskId];
+      if(members.length === 0) {
+          container.innerHTML = '<p style="color:red">Không tìm thấy thành viên nào được phân công trong Task này.</p>';
+          return;
+      }
+
+      members.forEach(m => {
+         container.innerHTML += `
+           <div class="member-card" data-code="${m.code}">
+              <div class="member-name">${m.name} <span style="font-weight:normal; color:#64748b; font-size:11px">(${m.code} | ${m.role})</span></div>
+              <div class="scores">
+                 <div>
+                    <label>Trách nhiệm (1-10)</label>
+                    <input type="number" class="score1" min="0" max="10" step="0.1" placeholder="Ví dụ: 9.5">
+                 </div>
+                 <div>
+                    <label>Chuyên môn (1-10)</label>
+                    <input type="number" class="score2" min="0" max="10" step="0.1" placeholder="Ví dụ: 9.0">
+                 </div>
+                 <div>
+                    <label>Phối hợp (1-10)</label>
+                    <input type="number" class="score3" min="0" max="10" step="0.1" placeholder="Ví dụ: 9.5">
+                 </div>
+              </div>
+           </div>
+         `;
+      });
+    }
+
+    function submitReview() {
+      const taskId = document.getElementById('taskSelect').value;
+      if (!taskId) { alert("Vui lòng chọn Task cần đánh giá!"); return; }
+      
+      const chk = document.getElementById('chkNotify').checked;
+      if (!chk) { alert("Bạn phải tích chọn xác nhận đã thông báo kết quả cho thành viên!"); return; }
+
+      const cards = document.querySelectorAll('.member-card');
+      let reviews = [];
+      let hasError = false;
+
+      cards.forEach(card => {
+         let code = card.getAttribute('data-code');
+         let s1 = card.querySelector('.score1').value;
+         let s2 = card.querySelector('.score2').value;
+         let s3 = card.querySelector('.score3').value;
+         
+         if(s1==="" || s2==="" || s3==="") hasError = true;
+         
+         reviews.push({
+             memberCode: code,
+             score1: parseFloat(s1) || 0,
+             score2: parseFloat(s2) || 0,
+             score3: parseFloat(s3) || 0
+         });
+      });
+
+      if (hasError) { alert("Vui lòng nhập đầy đủ cả 3 cột điểm cho tất cả thành viên!"); return; }
+
+      const btn = document.getElementById('submitBtn');
+      btn.innerText = "⏳ Đang ghi nhận điểm...";
+      btn.disabled = true;
+
+      const payload = { taskId: taskId, reviews: reviews };
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+           alert("✅ " + res);
+           google.script.host.close();
+        })
+        .withFailureHandler(function(err) {
+           alert("❌ Lỗi: " + err.message);
+           btn.innerText = "💾 LƯU ĐÁNH GIÁ & CẬP NHẬT BẢNG";
+           btn.disabled = false;
+        })
+        .submitReviewData(payload);
+    }
+  </script>
+</body>
+</html>

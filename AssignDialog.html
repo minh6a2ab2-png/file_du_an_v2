@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Roboto', sans-serif; padding: 16px 20px; color: #1e293b; background: #f8fafc; font-size: 13px; }
+    h3 { margin: 0 0 14px 0; color: #1e3a8a; font-size: 16px; font-weight: 700; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; }
+    .form-group { margin-bottom: 14px; }
+    label { display: block; font-weight: 600; margin-bottom: 6px; color: #334155; }
+    select, input[type="text"] { width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; font-size: 13px; background: #ffffff; }
+    .badge-info { background: #eff6ff; color: #1d4ed8; padding: 6px 10px; border-radius: 6px; font-size: 11.5px; border-left: 3px solid #3b82f6; margin-bottom: 12px; }
+    .member-table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; margin-top: 6px; }
+    .member-table th { background: #f1f5f9; padding: 8px 10px; font-size: 12px; text-align: left; color: #475569; border-bottom: 1px solid #cbd5e1; }
+    .member-table td { padding: 8px 10px; border-bottom: 1px solid #f1f5f9; font-size: 12px; }
+    .btn-add { background: #10b981; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 12px; }
+    .btn-del { background: #ef4444; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; }
+    .btn-submit { background: #2563eb; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 700; width: 100%; font-size: 14px; box-shadow: 0 2px 4px rgba(37,99,235,0.2); }
+    .btn-submit:hover { background: #1d4ed8; }
+    .btn-submit:disabled { background: #94a3b8; cursor: not-allowed; }
+    .error-box { background: #fef2f2; border: 1px solid #fca5a5; color: #b91c1c; padding: 8px 12px; border-radius: 6px; font-size: 12px; margin-bottom: 12px; display: none; }
+  </style>
+</head>
+<body>
+
+  <h3>📋 PHÂN CÔNG NHIỆM VỤ RACI MỞ RỘNG</h3>
+  <div id="errorBox" class="error-box"></div>
+
+  <div class="form-group">
+    <label>1. Chọn công việc cần phân công (Từ Quản lý công việc):</label>
+    <select id="taskSelect" onchange="onTaskChange()">
+      <option value="">-- Đang tải danh sách công việc... --</option>
+    </select>
+  </div>
+
+  <div id="firstAssignAlert" class="badge-info" style="display:none;">
+    ⚠️ <strong>Lưu ý:</strong> Đây là <em>lần đầu tiên</em> phân công cho nhiệm vụ này. Bắt buộc phải chỉ định <strong>MR (Main Responsible)</strong> và <strong>A (Accountable)</strong>.
+  </div>
+
+  <div class="form-group">
+    <label>2. Bổ sung nhân sự & Gán vai trò RACI:</label>
+    <div style="display:flex; gap:8px;">
+      <select id="memberSelect" style="flex: 2;">
+        <option value="">-- Chọn thành viên --</option>
+      </select>
+      <select id="roleSelect" style="flex: 2;">
+        <option value="MR - Main Responsible (Người điều phối)">MR - Người điều phối chính</option>
+        <option value="A - Accountable (Người phê duyệt)">A - Người phê duyệt</option>
+        <option value="R - Responsible (Người thực thi)">R - Người thực thi</option>
+        <option value="C - Consulted (Người cố vấn)">C - Người cố vấn</option>
+        <option value="I - Informed (Người liên quan)">I - Người liên quan</option>
+      </select>
+      <button type="button" class="btn-add" onclick="addAssignmentRow()">+ Thêm</button>
+    </div>
+  </div>
+
+  <table class="member-table" id="assignTable">
+    <thead>
+      <tr>
+        <th style="width: 25%;">Mã TV</th>
+        <th style="width: 35%;">Họ và tên</th>
+        <th style="width: 30%;">Vai trò RACI</th>
+        <th style="width: 10%; text-align: center;">Xóa</th>
+      </tr>
+    </thead>
+    <tbody id="assignTbody">
+      <!-- Các dòng phân bổ tạm thời -->
+    </tbody>
+  </table>
+
+  <div class="form-group" style="margin-top: 14px;">
+    <label>3. Ghi chú trách nhiệm / Bàn giao cụ thể (Tùy chọn):</label>
+    <input type="text" id="noteInput" placeholder="Ví dụ: Phụ trách biên soạn nội dung, nộp trước thứ 6...">
+  </div>
+
+  <button type="button" id="submitBtn" class="btn-submit" onclick="submitAssignments()">💾 Lưu Phân Công Vào Sheet</button>
+
+  <script>
+    let taskList = [];
+    let memberList = [];
+    let isFirstTime = false;
+    let currentAssignments = []; 
+
+      // 1. Tải danh sách Task và Member từ Google Sheets
+    window.onload = function() {
+      google.script.run
+        .withSuccessHandler(function(data) {
+          taskList = data.tasks || [];
+          memberList = data.members || [];
+          
+          const taskSelect = document.getElementById('taskSelect');
+          if (taskList.length === 0) {
+            taskSelect.innerHTML = '<option value="">-- Không có công việc nào khả dụng --</option>';
+          } else {
+            taskSelect.innerHTML = '<option value="">-- Chọn công việc --</option>';
+            taskList.forEach(t => {
+              const opt = document.createElement('option');
+              opt.value = t.id;
+              opt.textContent = `[${t.id}] ${t.name}`;
+              taskSelect.appendChild(opt);
+            });
+          }
+
+          const memberSelect = document.getElementById('memberSelect');
+          memberSelect.innerHTML = '<option value="">-- Chọn thành viên --</option>';
+          memberList.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m.code;
+            opt.textContent = `${m.code} - ${m.name} (${m.dept})`;
+            memberSelect.appendChild(opt);
+          });
+        })
+        .withFailureHandler(function(err) {
+          showError("Lỗi kết nối khi tải dữ liệu: " + err.message);
+        })
+        .getDialogInitData();
+    };
+
+    function onTaskChange() {
+      const taskId = document.getElementById('taskSelect').value;
+      if (!taskId) return;
+
+      google.script.run.withSuccessHandler(function(firstTime) {
+        isFirstTime = firstTime;
+        document.getElementById('firstAssignAlert').style.display = isFirstTime ? 'block' : 'none';
+      }).checkIsTaskFirstAssignment(taskId);
+    }
+
+    function addAssignmentRow() {
+      showError("");
+      const memberCode = document.getElementById('memberSelect').value;
+      const role = document.getElementById('roleSelect').value;
+
+      if (!memberCode) return showError("Vui lòng chọn thành viên.");
+
+      const member = memberList.find(m => m.code === memberCode);
+      const exists = currentAssignments.find(a => a.memberCode === memberCode);
+      if (exists) return showError("Thành viên này đã được thêm trong danh sách bên dưới.");
+
+      currentAssignments.push({
+        memberCode: memberCode,
+        memberName: member ? member.name : '',
+        role: role
+      });
+
+      renderTable();
+    }
+
+    function removeAssignment(index) {
+      currentAssignments.splice(index, 1);
+      renderTable();
+    }
+
+    function renderTable() {
+      const tbody = document.getElementById('assignTbody');
+      tbody.innerHTML = '';
+      currentAssignments.forEach((item, idx) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><strong>${item.memberCode}</strong></td>
+          <td>${item.memberName}</td>
+          <td><span style="color:#1e3a8a; font-weight:600;">${item.role.split(' - ')[0]}</span> - ${item.role.split(' - ')[1] || ''}</td>
+          <td style="text-align:center;"><button type="button" class="btn-del" onclick="removeAssignment(${idx})">X</button></td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function showError(msg) {
+      const box = document.getElementById('errorBox');
+      if (!msg) { box.style.display = 'none'; return; }
+      box.textContent = msg;
+      box.style.display = 'block';
+    }
+
+    function submitAssignments() {
+      showError("");
+      const taskId = document.getElementById('taskSelect').value;
+      const note = document.getElementById('noteInput').value;
+
+      if (!taskId) return showError("Vui lòng chọn công việc cần phân công.");
+      if (currentAssignments.length === 0) return showError("Vui lòng thêm ít nhất một nhân sự.");
+
+      let aCount = 0;
+      let mrCount = 0;
+      currentAssignments.forEach(a => {
+        if (a.role.startsWith("A -")) aCount++;
+        if (a.role.startsWith("MR -")) mrCount++;
+      });
+
+      if (isFirstTime && mrCount === 0) {
+        return showError("⚠️ Nhiệm vụ này chưa từng được phân công! Bắt buộc phải có 1 người đảm nhận vai trò MR (Main Responsible).");
+      }
+      if (aCount === 0 && isFirstTime) {
+        return showError("⚠️ Khi khởi tạo phân công mới cho nhiệm vụ, bắt buộc phải có 1 người phê duyệt (A - Accountable).");
+      }
+
+      const submitBtn = document.getElementById('submitBtn');
+      submitBtn.disabled = true;
+      submitBtn.textContent = "⏳ Đang ghi vào bảng...";
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          alert("✅ Phân công thành công!");
+          google.script.host.close();
+        })
+        .withFailureHandler(function(err) {
+          showError("Lỗi: " + err.message);
+          submitBtn.disabled = false;
+          submitBtn.textContent = "💾 Lưu Phân Công Vào Sheet";
+        })
+        .saveAssignmentsToSheet(taskId, currentAssignments, note);
+    }
+  </script>
+</body>
+</html>

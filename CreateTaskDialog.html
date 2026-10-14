@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Roboto', sans-serif; padding: 16px 20px; color: #1e293b; background: #f8fafc; font-size: 13px; }
+    h3 { margin: 0 0 14px 0; color: #1e3a8a; font-size: 16px; font-weight: 700; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; }
+    .form-group { margin-bottom: 12px; }
+    label { display: block; font-weight: 600; margin-bottom: 4px; color: #334155; font-size: 12px;}
+    select, input[type="text"], input[type="date"] { width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; font-size: 13px; background: #ffffff; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .btn-submit { background: #10b981; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 700; width: 100%; font-size: 14px; box-shadow: 0 2px 4px rgba(16,185,129,0.2); margin-top: 10px; }
+    .btn-submit:hover { background: #059669; }
+    .btn-submit:disabled { background: #94a3b8; cursor: not-allowed; }
+    .error-box { background: #fef2f2; border: 1px solid #fca5a5; color: #b91c1c; padding: 8px 12px; border-radius: 6px; font-size: 12px; margin-bottom: 12px; display: none; }
+  </style>
+</head>
+<body>
+  <h3>📝 TẠO CÔNG VIỆC MỚI (NEW TASK)</h3>
+  <div id="errorBox" class="error-box"></div>
+
+  <div class="form-group">
+    <label>Tên công việc (*)</label>
+    <input type="text" id="taskName" placeholder="VD: Khảo sát địa điểm thi đấu...">
+  </div>
+
+  <div class="grid-2">
+    <div class="form-group">
+      <label>Giai đoạn (*)</label>
+      <select id="taskPhase">
+        <option value="">-- Chọn Giai đoạn --</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Độ ưu tiên (*)</label>
+      <select id="taskPriority">
+        <option value="Bình thường">Bình thường</option>
+        <option value="Cao">Cao</option>
+        <option value="Khẩn cấp">Khẩn cấp</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="form-group">
+      <label>Ngày bắt đầu (*)</label>
+      <input type="date" id="taskStart">
+    </div>
+    <div class="form-group">
+      <label>Ngày kết thúc (Deadline) (*)</label>
+      <input type="date" id="taskEnd">
+    </div>
+  </div>
+
+  <div class="form-group">
+    <label>Tài liệu bàn giao (Yêu cầu) (*)</label>
+    <input type="text" id="taskDeliverable" placeholder="VD: Báo cáo.docx, Slide...">
+  </div>
+
+  <div class="grid-2">
+    <div class="form-group">
+      <label>Người thực hiện chính (*)</label>
+      <select id="execSelect">
+        <option value="">-- Chọn thành viên --</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Người phê duyệt (*)</label>
+      <select id="apprSelect">
+        <option value="">-- Chọn thành viên --</option>
+      </select>
+    </div>
+  </div>
+
+  <button type="button" id="submitBtn" class="btn-submit" onclick="submitTask()">💾 Tạo Công Việc</button>
+
+  <script>
+    window.onload = function() {
+      google.script.run.withSuccessHandler(function(data) {
+        const execSel = document.getElementById('execSelect');
+        const apprSel = document.getElementById('apprSelect');
+        const phaseSel = document.getElementById('taskPhase');
+        
+        // 1. Tải danh sách Thành viên
+        if (data.members) {
+          data.members.forEach(m => {
+            const opt1 = document.createElement('option');
+            opt1.value = m.code; opt1.textContent = `${m.code} - ${m.name}`;
+            execSel.appendChild(opt1);
+            
+            const opt2 = document.createElement('option');
+            opt2.value = m.code; opt2.textContent = `${m.code} - ${m.name}`;
+            apprSel.appendChild(opt2);
+          });
+        }
+
+        // 2. Tải danh sách Giai đoạn
+        if (data.phases && data.phases.length > 0) {
+          data.phases.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p; opt.textContent = p;
+            phaseSel.appendChild(opt);
+          });
+        }
+      }).getDialogInitData(); 
+    };
+
+    function submitTask() {
+      const btnSubmit = document.getElementById('submitBtn');
+      const errBox = document.getElementById('errorBox');
+      
+      // Lấy dữ liệu từ các trường
+      const name = document.getElementById('taskName').value.trim();
+      const phase = document.getElementById('taskPhase').value.trim();
+      const priority = document.getElementById('taskPriority').value;
+      const startDate = document.getElementById('taskStart').value;
+      const endDate = document.getElementById('taskEnd').value;
+      const deliverable = document.getElementById('taskDeliverable').value.trim();
+      const execCode = document.getElementById('execSelect').value;
+      const apprCode = document.getElementById('apprSelect').value;
+
+      // KIỂM TRA ĐIỀU KIỆN (VALIDATION) - BẮT BUỘC ĐIỀN TẤT CẢ
+      if(!name) {
+        showError('Vui lòng nhập Tên công việc!'); return;
+      }
+      if(!phase) {
+        showError('Vui lòng chọn Giai đoạn!'); return;
+      }
+      if(!priority) {
+        showError('Vui lòng chọn Độ ưu tiên!'); return;
+      }
+      if(!startDate) {
+        showError('Vui lòng chọn Ngày bắt đầu!'); return;
+      }
+      if(!endDate) {
+        showError('Vui lòng chọn Ngày kết thúc (Deadline)!'); return;
+      }
+      // Kiểm tra ngày kết thúc phải sau hoặc bằng ngày bắt đầu
+      if(new Date(endDate) < new Date(startDate)) {
+        showError('Lỗi: Ngày kết thúc không thể diễn ra trước Ngày bắt đầu!'); return;
+      }
+      if(!deliverable) {
+        showError('Vui lòng nhập Yêu cầu tài liệu bàn giao!'); return;
+      }
+      if(!execCode) {
+        showError('Vui lòng chọn Người thực hiện chính!'); return;
+      }
+      if(!apprCode) {
+        showError('Vui lòng chọn Người phê duyệt!'); return;
+      }
+
+      errBox.style.display = 'none';
+
+      // HIỂN THỊ TRẠNG THÁI CHỜ
+      const txtGoc = btnSubmit.innerHTML;
+      btnSubmit.innerHTML = "⏳ Đang tạo Task...";
+      btnSubmit.disabled = true;
+
+      const data = {
+        name: name,
+        phase: phase,
+        priority: priority,
+        startDate: startDate,
+        endDate: endDate,
+        deliverable: deliverable,
+        execCode: execCode,
+        apprCode: apprCode
+      };
+
+      // GỌI SERVER VÀ BẮT LỖI RÕ RÀNG
+      google.script.run
+        .withSuccessHandler(function(response) {
+            alert("✅ Thành công!\nTask mới đã được tạo: " + response);
+            google.script.host.close(); 
+        })
+        .withFailureHandler(function(error) {
+            alert("❌ Lỗi hệ thống (Server Error):\n" + error.message);
+            // Phục hồi lại nút bấm
+            btnSubmit.innerHTML = txtGoc;
+            btnSubmit.disabled = false;
+        })
+        .createNewTask(data); 
+    }
+
+    // Hàm phụ trợ hiển thị hộp thoại báo lỗi
+    function showError(message) {
+      const errBox = document.getElementById('errorBox');
+      errBox.style.display = 'block';
+      errBox.textContent = message;
+    }
+  </script>
+</body>
+</html>

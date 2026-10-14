@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Roboto', sans-serif; }
+    body { padding: 20px; background-color: #F8FAFC; color: #1E293B; font-size: 14px; }
+    .form-group { margin-bottom: 16px; }
+    label { display: block; font-weight: 500; margin-bottom: 6px; color: #334155; }
+    select, input[type="date"], textarea {
+      width: 100%; padding: 10px 12px; border: 1px solid #CBD5E1; border-radius: 6px;
+      font-size: 14px; background-color: #FFFFFF; outline: none; transition: border-color 0.2s;
+    }
+    select:focus, input[type="date"]:focus, textarea:focus { border-color: #2563EB; box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
+    .read-only-box {
+      padding: 10px 12px; background-color: #F1F5F9; border: 1px solid #E2E8F0;
+      border-radius: 6px; color: #475569; font-weight: 500;
+    }
+    .preview-card {
+      background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 8px;
+      padding: 14px; margin-top: 14px; display: none;
+    }
+    .preview-title { font-weight: 700; color: #1E3A8A; margin-bottom: 8px; font-size: 13px; text-transform: uppercase; }
+    .diff-badge {
+      display: inline-block; padding: 3px 8px; border-radius: 12px; font-weight: 700; font-size: 13px;
+    }
+    .diff-plus { background-color: #FEF3C7; color: #D97706; }
+    .diff-minus { background-color: #DCFCE7; color: #16A34A; }
+    .diff-zero { background-color: #F1F5F9; color: #64748B; }
+    .alert-box { padding: 10px; border-radius: 6px; margin-bottom: 14px; display: none; font-size: 13px; }
+    .alert-error { background-color: #FEE2E2; color: #DC2626; border: 1px solid #FCA5A5; }
+    .alert-success { background-color: #DCFCE7; color: #15803D; border: 1px solid #86EFAC; }
+    .btn-row { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+    button {
+      padding: 10px 18px; border-radius: 6px; font-weight: 500; font-size: 14px;
+      cursor: pointer; border: none; transition: all 0.2s;
+    }
+    .btn-secondary { background: #E2E8F0; color: #475569; }
+    .btn-secondary:hover { background: #CBD5E1; }
+    .btn-primary { background: #2563EB; color: #FFFFFF; }
+    .btn-primary:hover { background: #1D4ED8; }
+    .btn-primary:disabled { background: #94A3B8; cursor: not-allowed; }
+    .loading-spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #FFF; border-radius: 50%; border-top-color: transparent; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 6px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+  <div id="alertBox" class="alert-box"></div>
+
+  <div class="form-group">
+    <label for="taskSelect">Chọn công việc cần điều chỉnh</label>
+    <select id="taskSelect" onchange="onTaskSelected()">
+      <option value="">-- Đang tải danh sách công việc... --</option>
+    </select>
+  </div>
+
+  <div class="form-group" style="display: flex; gap: 12px;">
+    <div style="flex: 1;">
+      <label>Ngày bắt đầu</label>
+      <div id="startDateText" class="read-only-box">--</div>
+    </div>
+    <div style="flex: 1;">
+      <label>Deadline hiện tại</label>
+      <div id="currentDeadlineText" class="read-only-box">--</div>
+    </div>
+  </div>
+
+  <div class="form-group">
+    <label for="newDeadlinedate">Deadline mới mong muốn</label>
+    <input type="date" id="newDeadlineDate" onchange="calculatePreview()">
+  </div>
+
+  <div class="form-group">
+    <label for="changeReason">Lý do điều chỉnh <span style="color:#DC2626">*</span></label>
+    <textarea id="changeReason" rows="3" placeholder="Nhập lý do cụ thể (vd: Chờ phản hồi ban tổ chức, bổ sung nội dung...)"></textarea>
+  </div>
+
+  <!-- BẢN XEM TRƯỚC TÁC ĐỘNG -->
+  <div id="previewCard" class="preview-card">
+    <div class="preview-title">Xem trước thay đổi</div>
+    <div style="line-height: 1.8;">
+      <div>Công việc: <strong id="pvTaskName">--</strong></div>
+      <div>Deadline: <span id="pvOldDate">--</span> ➔ <strong id="pvNewDate" style="color: #2563EB;">--</strong></div>
+      <div>Chênh lệch thời gian: <span id="pvDiffBadge" class="diff-badge">0 ngày</span></div>
+    </div>
+  </div>
+
+  <div class="btn-row">
+    <button type="button" class="btn-secondary" onclick="google.script.host.close()">Hủy bỏ</button>
+    <button type="button" id="btnSubmit" class="btn-primary" onclick="submitChange()" disabled>Xác nhận thay đổi</button>
+  </div>
+
+  <script>
+    let tasksData = [];
+    let selectedTask = null;
+
+    // Khởi tạo tải danh sách task
+    window.onload = function() {
+      google.script.run
+        .withSuccessHandler(onTasksLoaded)
+        .withFailureHandler(function(err) {
+          showAlert("Lỗi tải danh sách: " + err.message, "alert-error");
+        })
+        .getTasksForDeadlineChange();
+    };
+
+    function onTasksLoaded(tasks) {
+      tasksData = tasks;
+      const select = document.getElementById("taskSelect");
+      select.innerHTML = '<option value="">-- Chọn công việc --</option>';
+
+      if (tasks.length === 0) {
+        select.innerHTML = '<option value="">Không có công việc nào cần đổi deadline</option>';
+        return;
+      }
+
+      tasks.forEach(t => {
+        const opt = document.createElement("option");
+        opt.value = t.taskId;
+        opt.textContent = t.taskId + ": " + t.taskName;
+        select.appendChild(opt);
+      });
+    }
+
+    function onTaskSelected() {
+      const taskId = document.getElementById("taskSelect").value;
+      selectedTask = tasksData.find(t => t.taskId === taskId) || null;
+
+      if (!selectedTask) {
+        document.getElementById("startDateText").textContent = "--";
+        document.getElementById("currentDeadlineText").textContent = "--";
+        document.getElementById("newDeadlineDate").value = "";
+        document.getElementById("previewCard").style.display = "none";
+        document.getElementById("btnSubmit").disabled = true;
+        return;
+      }
+
+      document.getElementById("startDateText").textContent = selectedTask.startDateDisplay;
+      document.getElementById("currentDeadlineText").textContent = selectedTask.endDateDisplay;
+      document.getElementById("newDeadlineDate").value = selectedTask.endDateStr || "";
+      calculatePreview();
+    }
+
+    function calculatePreview() {
+      if (!selectedTask) return;
+      const newDateVal = document.getElementById("newDeadlineDate").value;
+      const btn = document.getElementById("btnSubmit");
+
+      if (!newDateVal) {
+        document.getElementById("previewCard").style.display = "none";
+        btn.disabled = true;
+        return;
+      }
+
+      const newDate = new Date(newDateVal + "T00:00:00");
+      let oldDate = selectedTask.endDateStr ? new Date(selectedTask.endDateStr + "T00:00:00") : newDate;
+      const diffTime = newDate.getTime() - oldDate.getTime();
+      const diffDays = Math.round(diffTime / (1000 * 3600 * 24));
+
+      document.getElementById("pvTaskName").textContent = selectedTask.taskId + " - " + selectedTask.taskName;
+      document.getElementById("pvOldDate").textContent = selectedTask.endDateDisplay;
+
+      const parts = newDateVal.split("-");
+      document.getElementById("pvNewDate").textContent = parts[2] + "/" + parts[1] + "/" + parts[0];
+
+      const badge = document.getElementById("pvDiffBadge");
+      if (diffDays > 0) {
+        badge.className = "diff-badge diff-plus";
+        badge.textContent = "+" + diffDays + " ngày (Gia hạn)";
+      } else if (diffDays < 0) {
+        badge.className = "diff-badge diff-minus";
+        badge.textContent = diffDays + " ngày (Rút ngắn)";
+      } else {
+        badge.className = "diff-badge diff-zero";
+        badge.textContent = "Không đổi";
+      }
+
+      document.getElementById("previewCard").style.display = "block";
+      btn.disabled = false;
+    }
+
+    function submitChange() {
+      const reason = document.getElementById("changeReason").value.trim();
+      const newDate = document.getElementById("newDeadlineDate").value;
+
+      if (!selectedTask) {
+        showAlert("Vui lòng chọn công việc.", "alert-error");
+        return;
+      }
+      if (!newDate) {
+        showAlert("Vui lòng chọn deadline mới.", "alert-error");
+        return;
+      }
+      if (!reason) {
+        showAlert("Vui lòng nhập lý do điều chỉnh.", "alert-error");
+        document.getElementById("changeReason").focus();
+        return;
+      }
+
+      const btn = document.getElementById("btnSubmit");
+      btn.disabled = true;
+      btn.innerHTML = '<span class="loading-spinner"></span> Đang xử lý...';
+
+      const payload = {
+        taskId: selectedTask.taskId,
+        currentDeadline: selectedTask.endDateStr,
+        newDeadline: newDate,
+        reason: reason
+      };
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          btn.innerHTML = 'Xác nhận thay đổi';
+          if (res.success) {
+            showAlert(res.message, "alert-success");
+            setTimeout(function() {
+              google.script.host.close();
+            }, 1800);
+          } else {
+            showAlert(res.message, "alert-error");
+            btn.disabled = false;
+            if (res.conflict) {
+              // Tải lại danh sách nếu có xung đột
+              google.script.run.withSuccessHandler(onTasksLoaded).getTasksForDeadlineChange();
+            }
+          }
+        })
+        .withFailureHandler(function(err) {
+          btn.disabled = false;
+          btn.innerHTML = 'Xác nhận thay đổi';
+          showAlert("Lỗi máy chủ: " + err.message, "alert-error");
+        })
+        .changeTaskDeadline(payload);
+    }
+
+    function showAlert(msg, className) {
+      const box = document.getElementById("alertBox");
+      box.className = "alert-box " + className;
+      box.textContent = msg;
+      box.style.display = "block";
+    }
+  </script>
+</body>
+</html>
